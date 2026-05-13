@@ -1,0 +1,3 @@
+[submodule "tblis-sys/extern/tblis"]
+	path = tblis-sys/extern/tblis
+	url = https://github.com/MatthewsResearchGroup/tblis.git

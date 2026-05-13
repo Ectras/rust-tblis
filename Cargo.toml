@@ -1,0 +1,3 @@
+[workspace]
+members = ["tblis","tblis-sys"]
+resolver = "3"
