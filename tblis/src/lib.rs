@@ -2,11 +2,15 @@ use std::{marker::PhantomData, mem::MaybeUninit};
 
 use num_complex::Complex64;
 
+/// Rust wrapper around an instance of a `tblis_tensor` C struct.
 struct TblisTensor<'a> {
     tensor: tblis_sys::tblis_tensor,
+    /// Since the tblis_tensor stores pointers to the shape, stride and data, we must
+    /// ensure that they outlive this struct.
     phantom: PhantomData<&'a tblis_sys::tblis_tensor>,
 }
 
+/// Builds a stride vector for a standard row-major tensor.
 fn build_row_major_strides(shape: &[isize]) -> Vec<isize> {
     let mut last = 1;
     let mut strides = vec![0; shape.len()];
@@ -17,7 +21,7 @@ fn build_row_major_strides(shape: &[isize]) -> Vec<isize> {
     strides
 }
 
-fn create_tensor<'a>(
+fn create_input_tensor<'a>(
     shape: &'a [isize],
     data: &'a [Complex64],
     strides: &'a [isize],
@@ -28,6 +32,8 @@ fn create_tensor<'a>(
             tensor.as_mut_ptr(),
             shape.len().try_into().unwrap(),
             shape.as_ptr().cast_mut(),
+            // tblis' API doesn't discriminate between input and output tensors,
+            // hence the data pointer is always passed as non-const and we need cast_mut().
             data.as_ptr().cast_mut().cast(),
             strides.as_ptr().cast_mut(),
         );
@@ -42,7 +48,7 @@ fn create_tensor<'a>(
 
 fn create_out_tensor<'a>(
     shape: &'a [isize],
-    data: *const Complex64,
+    data: *mut Complex64,
     strides: &'a [isize],
 ) -> TblisTensor<'a> {
     let tensor = unsafe {
@@ -53,7 +59,7 @@ fn create_out_tensor<'a>(
             scalar,
             shape.len().try_into().unwrap(),
             shape.as_ptr().cast_mut(),
-            data.cast_mut().cast(),
+            data.cast(),
             strides.as_ptr().cast_mut(),
         );
         tensor.assume_init()
@@ -69,6 +75,8 @@ fn convert_shape(shape: &[usize]) -> Vec<isize> {
     shape.iter().map(|&u| u.try_into().unwrap()).collect()
 }
 
+/// Contracts two tensors and returns the output data in the order given by
+/// `out_labels`.
 pub fn tensor_mult(
     out_labels: &[usize],
     out_shape: &[usize],
@@ -88,9 +96,9 @@ pub fn tensor_mult(
     let out_strides = build_row_major_strides(&out_shape);
     let mut out_data = Vec::with_capacity(out_size);
 
-    let a_tensor = create_tensor(&a_shape, a_data, &a_strides);
-    let b_tensor = create_tensor(&b_shape, b_data, &b_strides);
-    let mut c_tensor = create_out_tensor(&out_shape, out_data.as_ptr(), &out_strides);
+    let a_tensor = create_input_tensor(&a_shape, a_data, &a_strides);
+    let b_tensor = create_input_tensor(&b_shape, b_data, &b_strides);
+    let mut c_tensor = create_out_tensor(&out_shape, out_data.as_mut_ptr(), &out_strides);
 
     unsafe {
         tblis_sys::tblis_tensor_mult(
@@ -108,6 +116,7 @@ pub fn tensor_mult(
     out_data
 }
 
+/// Permutes the tensor data to fit the order in `out_labels`.
 pub fn tensor_reorder(
     out_labels: &[usize],
     out_shape: &[usize],
@@ -122,8 +131,8 @@ pub fn tensor_reorder(
     let out_strides = build_row_major_strides(&out_shape);
     let mut out_data = Vec::with_capacity(out_size);
 
-    let a_tensor = create_tensor(&a_shape, a_data, &a_strides);
-    let mut c_tensor = create_out_tensor(&out_shape, out_data.as_ptr(), &out_strides);
+    let a_tensor = create_input_tensor(&a_shape, a_data, &a_strides);
+    let mut c_tensor = create_out_tensor(&out_shape, out_data.as_mut_ptr(), &out_strides);
 
     unsafe {
         tblis_sys::tblis_tensor_add(
@@ -152,7 +161,7 @@ mod tests {
     }
 
     #[test]
-    fn toy_contraction() {
+    fn contract_simple() {
         let a_data = &[
             Complex64::new(1.0, 0.0),
             Complex64::ZERO,
@@ -209,7 +218,7 @@ mod tests {
     }
 
     #[test]
-    fn toy_contraction_transposed() {
+    fn contract_transposed_output() {
         let a_data = &[
             Complex64::new(1.0, 0.0),
             Complex64::ZERO,
@@ -266,7 +275,7 @@ mod tests {
     }
 
     #[test]
-    fn matrix_transpose() {
+    fn transpose_matrix() {
         let data = vec![
             Complex64::new(1.0, 0.0),
             Complex64::new(2.0, 0.0),
@@ -288,5 +297,21 @@ mod tests {
                 Complex64::new(6.0, 0.0),
             ]
         );
+    }
+
+    #[test]
+    fn contract_scalar_output() {
+        let a = vec![
+            Complex64::new(1.0, 0.0),
+            Complex64::new(2.0, 0.0),
+            Complex64::new(3.0, 0.0),
+        ];
+        let b = vec![
+            Complex64::new(2.0, 0.0),
+            Complex64::new(4.0, 0.0),
+            Complex64::new(-1.0, 0.0),
+        ];
+        let c_data = tensor_mult(&[], &[], &[0], &[3], &a, &[0], &[3], &b);
+        assert_eq!(c_data, vec![Complex64::new(7.0, 0.0)]);
     }
 }
