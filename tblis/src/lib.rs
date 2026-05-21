@@ -2,6 +2,56 @@ use std::{marker::PhantomData, mem::MaybeUninit};
 
 use num_complex::Complex64;
 
+/// A view into a tensor with labels, shape, and data.
+pub struct TensorView<'a> {
+    /// Labels assign a name to each dimension of the tensor.
+    labels: &'a [usize],
+    /// The shape of the tensor, i.e. the size of each dimension.
+    shape: &'a [usize],
+    /// The data of the tensor, stored in row-major order.
+    data: &'a [Complex64],
+}
+
+impl<'a> TensorView<'a> {
+    /// Creates a new tensor view.
+    ///
+    /// # Panics
+    ///
+    /// Panics if:
+    /// - The number of labels does not match the number of dimensions
+    /// - The data length does not match the product of the shape dimensions
+    pub fn new(labels: &'a [usize], shape: &'a [usize], data: &'a [Complex64]) -> Self {
+        assert_eq!(labels.len(), shape.len());
+
+        let expected_len = shape.iter().product();
+        assert_eq!(data.len(), expected_len);
+
+        TensorView {
+            labels,
+            shape,
+            data,
+        }
+    }
+
+    /// Returns the labels of this tensor view.
+    #[inline]
+    pub fn labels(&self) -> &'a [usize] {
+        self.labels
+    }
+
+    /// Returns the shape of this tensor view.
+    #[inline]
+    pub fn shape(&self) -> &'a [usize] {
+        self.shape
+    }
+
+    /// Returns the data of this tensor view.
+    #[inline]
+    pub fn data(&self) -> &'a [Complex64] {
+        self.data
+    }
+}
+
 /// Rust wrapper around an instance of a `tblis_tensor` C struct.
 struct TblisTensor<'a> {
     tensor: tblis_sys::tblis_tensor,
@@ -80,24 +130,20 @@ fn convert_shape(shape: &[usize]) -> Vec<isize> {
 pub fn tensor_mult(
     out_labels: &[usize],
     out_shape: &[usize],
-    a_labels: &[usize],
-    a_shape: &[usize],
-    a_data: &[Complex64],
-    b_labels: &[usize],
-    b_shape: &[usize],
-    b_data: &[Complex64],
+    a: TensorView,
+    b: TensorView,
 ) -> Vec<Complex64> {
-    let a_shape = convert_shape(a_shape);
+    let a_shape = convert_shape(a.shape());
     let a_strides = build_row_major_strides(&a_shape);
-    let b_shape = convert_shape(b_shape);
+    let b_shape = convert_shape(b.shape());
     let b_strides = build_row_major_strides(&b_shape);
     let out_size = out_shape.iter().product();
     let out_shape = convert_shape(out_shape);
     let out_strides = build_row_major_strides(&out_shape);
     let mut out_data = Vec::with_capacity(out_size);
 
-    let a_tensor = create_input_tensor(&a_shape, a_data, &a_strides);
-    let b_tensor = create_input_tensor(&b_shape, b_data, &b_strides);
+    let a_tensor = create_input_tensor(&a_shape, a.data(), &a_strides);
+    let b_tensor = create_input_tensor(&b_shape, b.data(), &b_strides);
     let mut c_tensor = create_out_tensor(&out_shape, out_data.as_mut_ptr(), &out_strides);
 
     unsafe {
@@ -105,9 +151,9 @@ pub fn tensor_mult(
             std::ptr::null(),
             std::ptr::null(),
             &raw const a_tensor.tensor,
-            a_labels.as_ptr(),
+            a.labels().as_ptr(),
             &raw const b_tensor.tensor,
-            b_labels.as_ptr(),
+            b.labels().as_ptr(),
             &raw mut c_tensor.tensor,
             out_labels.as_ptr(),
         );
@@ -117,21 +163,15 @@ pub fn tensor_mult(
 }
 
 /// Permutes the tensor data to fit the order in `out_labels`.
-pub fn tensor_reorder(
-    out_labels: &[usize],
-    out_shape: &[usize],
-    a_labels: &[usize],
-    a_shape: &[usize],
-    a_data: &[Complex64],
-) -> Vec<Complex64> {
-    let a_shape = convert_shape(a_shape);
+pub fn tensor_reorder(out_labels: &[usize], out_shape: &[usize], a: TensorView) -> Vec<Complex64> {
+    let a_shape = convert_shape(a.shape());
     let a_strides = build_row_major_strides(&a_shape);
     let out_size = out_shape.iter().product();
     let out_shape = convert_shape(out_shape);
     let out_strides = build_row_major_strides(&out_shape);
     let mut out_data = Vec::with_capacity(out_size);
 
-    let a_tensor = create_input_tensor(&a_shape, a_data, &a_strides);
+    let a_tensor = create_input_tensor(&a_shape, a.data(), &a_strides);
     let mut c_tensor = create_out_tensor(&out_shape, out_data.as_mut_ptr(), &out_strides);
 
     unsafe {
@@ -139,7 +179,7 @@ pub fn tensor_reorder(
             std::ptr::null(),
             std::ptr::null(),
             &raw const a_tensor.tensor,
-            a_labels.as_ptr(),
+            a.labels().as_ptr(),
             &raw mut c_tensor.tensor,
             out_labels.as_ptr(),
         );
@@ -197,12 +237,8 @@ mod tests {
         let c_data = tensor_mult(
             &[0, 1],
             &[2, 3],
-            &[0, 1, 2],
-            &[2, 3, 4],
-            a_data,
-            &[2],
-            &[4],
-            b_data,
+            TensorView::new(&[0, 1, 2], &[2, 3, 4], a_data),
+            TensorView::new(&[2], &[4], b_data),
         );
         assert_eq!(
             c_data,
@@ -254,12 +290,8 @@ mod tests {
         let c_data = tensor_mult(
             &[1, 0],
             &[3, 2],
-            &[0, 1, 2],
-            &[2, 3, 4],
-            a_data,
-            &[2],
-            &[4],
-            b_data,
+            TensorView::new(&[0, 1, 2], &[2, 3, 4], a_data),
+            TensorView::new(&[2], &[4], b_data),
         );
         assert_eq!(
             c_data,
@@ -284,7 +316,7 @@ mod tests {
             Complex64::new(5.0, 0.0),
             Complex64::new(6.0, 0.0),
         ];
-        let out = tensor_reorder(&[1, 0], &[3, 2], &[0, 1], &[2, 3], &data);
+        let out = tensor_reorder(&[1, 0], &[3, 2], TensorView::new(&[0, 1], &[2, 3], &data));
 
         assert_eq!(
             out,
@@ -311,7 +343,12 @@ mod tests {
             Complex64::new(4.0, 0.0),
             Complex64::new(-1.0, 0.0),
         ];
-        let c_data = tensor_mult(&[], &[], &[0], &[3], &a, &[0], &[3], &b);
+        let c_data = tensor_mult(
+            &[],
+            &[],
+            TensorView::new(&[0], &[3], &a),
+            TensorView::new(&[0], &[3], &b),
+        );
         assert_eq!(c_data, vec![Complex64::new(7.0, 0.0)]);
     }
 }
