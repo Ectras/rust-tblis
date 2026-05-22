@@ -4,6 +4,11 @@ version = "0.1.0"
 edition = "2024"
 rust-version = "1.85"
 
+[features]
+# Links to hwloc (requires it to be installed on the system) and builds TBLIS with
+# support for it.
+hwloc = []
+
 [build-dependencies]
 bindgen = "0.72.1"
 cmake = "0.1.58"

@@ -4,6 +4,11 @@ version = "0.1.0"
 edition = "2024"
 rust-version = "1.85"
 
+[features]
+# Use hwloc (must be installed on the system) for TBLIS to make use of hardware
+# topology information.
+hwloc = ["tblis-sys/hwloc"]
+
 [dependencies]
 num-complex = "0.4.6"
 tblis-sys = { path = "../tblis-sys" }

@@ -11,10 +11,14 @@ fn main() {
         env::set_var("CC", "/usr/bin/gcc");
         env::set_var("CXX", "/usr/bin/g++");
     }
-    let dst = Config::new(&tblis_path)
-        .configure_arg("-DENABLE_SHARED=OFF")
-        .configure_arg("-DLABEL_TYPE=size_t")
-        .build();
+    let mut config = Config::new(&tblis_path);
+    config.configure_arg("-DENABLE_SHARED=false");
+    config.configure_arg("-DLABEL_TYPE=size_t");
+
+    let use_hwloc = cfg!(feature = "hwloc");
+    config.configure_arg(format!("-DENABLE_HWLOC={}", use_hwloc));
+
+    let dst = config.build();
 
     // Link it
     println!("cargo:rustc-link-search={}", dst.join("lib").display());
@@ -26,8 +30,10 @@ fn main() {
     println!("cargo:rustc-link-lib=static=tci");
     println!("cargo:rustc-link-lib=static=blis_core");
     println!("cargo:rustc-link-lib=static=blis_tblis");
-    println!("cargo:rustc-link-lib=hwloc");
     println!("cargo:rustc-link-lib=atomic");
+    if use_hwloc {
+        println!("cargo:rustc-link-lib=hwloc");
+    }
 
     // Link the C++ standard library
     if cfg!(target_os = "linux") {
