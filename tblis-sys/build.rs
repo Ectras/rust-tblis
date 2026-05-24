@@ -15,32 +15,24 @@ fn main() {
     config.configure_arg("-DENABLE_SHARED=false");
     config.configure_arg("-DLABEL_TYPE=size_t");
 
+    // Optionally enable hwloc support
     let use_hwloc = cfg!(feature = "hwloc");
     config.configure_arg(format!("-DENABLE_HWLOC={}", use_hwloc));
 
+    // Build with cmake
     let dst = config.build();
 
-    // Link it
-    println!("cargo:rustc-link-search={}", dst.join("lib").display());
-    println!(
-        "cargo:rustc-link-search={}",
-        dst.join("lib").join("tblis").display()
-    );
-    println!("cargo:rustc-link-lib=static=tblis");
-    println!("cargo:rustc-link-lib=static=tci");
-    println!("cargo:rustc-link-lib=static=blis_core");
-    println!("cargo:rustc-link-lib=static=blis_tblis");
-    println!("cargo:rustc-link-lib=atomic");
-    if use_hwloc {
-        println!("cargo:rustc-link-lib=hwloc");
+    // Use pkg-config to find the built library
+    unsafe {
+        std::env::set_var("PKG_CONFIG_PATH", dst.join("lib").join("pkgconfig"));
     }
 
-    // Link the C++ standard library
-    if cfg!(target_os = "linux") {
-        println!("cargo:rustc-link-lib=dylib=stdc++");
-    } else if cfg!(target_os = "macos") {
-        println!("cargo:rustc-link-lib=dylib=c++");
-    }
+    // Extract linker flags using pkg-config
+    pkg_config::Config::new()
+        .statik(true)
+        .env_metadata(false)
+        .probe("tblis")
+        .unwrap();
 
     // Generate bindings
     let header = dst.join("include").join("tblis.h");
@@ -50,7 +42,6 @@ fn main() {
             dst.join("include").display()
         ))
         .header(header.to_str().unwrap())
-        .parse_callbacks(Box::new(bindgen::CargoCallbacks::new()))
         .generate()
         .expect("Unable to generate bindings");
     let out_path = PathBuf::from(env::var("OUT_DIR").unwrap());
