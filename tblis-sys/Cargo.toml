@@ -15,4 +15,5 @@ cmake = "0.1.58"
 pkg-config = "0.3.33"
 
 [dependencies]
+link-cplusplus = "1.0.12"
 openmp-sys = "1.3.0"

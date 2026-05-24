@@ -3,4 +3,7 @@
 // openmp_sys takes care of linking OpenMP which is used by tblis.
 extern crate openmp_sys;
 
+// link-cplusplus is needed to link the C++ standard library.
+extern crate link_cplusplus;
+
 include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
