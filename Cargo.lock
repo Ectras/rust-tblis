@@ -294,6 +294,7 @@ name = "tblis-sys"
 version = "0.1.0"
 dependencies = [
  "bindgen",
+ "cc",
  "cmake",
  "link-cplusplus",
  "openmp-sys",

@@ -2,15 +2,38 @@ use std::{env, path::PathBuf};
 
 use cmake::Config;
 
+/// Fixes the issue that BLIS doesn't recognize gcc on some systems.
+/// Workaround until <https://github.com/flame/blis/issues/741> is fixed.
+fn gcc_workaround() -> bool {
+    if env::var_os("CC").is_none()
+        && let Ok(compiler) = cc::Build::new().try_get_compiler()
+        && compiler.is_like_gnu()
+    {
+        println!("cargo:warning=BLIS workaround: setting CC and CXX to gcc and g++");
+        unsafe {
+            env::set_var("CC", "gcc");
+            env::set_var("CXX", "g++");
+        }
+        true
+    } else {
+        false
+    }
+}
+
+fn undo_gcc_workaround() {
+    unsafe {
+        env::remove_var("CC");
+        env::remove_var("CXX");
+    }
+}
+
 fn main() {
     // Build tblis
     let extern_path = PathBuf::from("extern");
     let tblis_path = extern_path.join("tblis");
-    unsafe {
-        // Workaround until https://github.com/flame/blis/issues/741 is fixed
-        env::set_var("CC", "/usr/bin/gcc");
-        env::set_var("CXX", "/usr/bin/g++");
-    }
+
+    let fix_applied = gcc_workaround();
+
     let mut config = Config::new(&tblis_path);
     config.configure_arg("-DENABLE_SHARED=false");
     config.configure_arg("-DLABEL_TYPE=size_t");
@@ -21,6 +44,10 @@ fn main() {
 
     // Build with cmake
     let dst = config.build();
+
+    if fix_applied {
+        undo_gcc_workaround();
+    }
 
     // Use pkg-config to find the built library
     unsafe {
