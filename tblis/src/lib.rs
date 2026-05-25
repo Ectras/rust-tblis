@@ -12,7 +12,7 @@ pub struct TensorView<'a> {
     /// next element in each dimension.
     strides: &'a [isize],
     /// The data of the tensor.
-    data: &'a [Complex64],
+    data: *const Complex64,
 }
 
 impl<'a> TensorView<'a> {
@@ -22,19 +22,15 @@ impl<'a> TensorView<'a> {
     ///
     /// Panics if:
     /// - The number of labels does not match the number of dimensions
-    /// - The data length does not match the product of the shape dimensions
     /// - The strides length does not match the number of dimensions
     pub fn new(
         labels: &'a [usize],
         shape: &'a [usize],
         strides: &'a [isize],
-        data: &'a [Complex64],
+        data: *const Complex64,
     ) -> Self {
         assert_eq!(labels.len(), shape.len());
         assert_eq!(strides.len(), shape.len());
-
-        let expected_len = shape.iter().product();
-        assert_eq!(data.len(), expected_len);
 
         TensorView {
             labels,
@@ -58,7 +54,7 @@ impl<'a> TensorView<'a> {
 
     /// Returns the data of this tensor view.
     #[inline]
-    pub fn data(&self) -> &'a [Complex64] {
+    pub fn data(&self) -> *const Complex64 {
         self.data
     }
 
@@ -90,7 +86,7 @@ fn build_row_major_strides(shape: &[isize]) -> Vec<isize> {
 
 fn create_input_tensor<'a>(
     shape: &'a [isize],
-    data: &'a [Complex64],
+    data: *const Complex64,
     strides: &'a [isize],
 ) -> TblisTensor<'a> {
     let tensor = unsafe {
@@ -101,7 +97,7 @@ fn create_input_tensor<'a>(
             shape.as_ptr().cast_mut(),
             // tblis' API doesn't discriminate between input and output tensors,
             // hence the data pointer is always passed as non-const and we need cast_mut().
-            data.as_ptr().cast_mut().cast(),
+            data.cast_mut().cast(),
             strides.as_ptr().cast_mut(),
         );
         tensor.assume_init()
@@ -251,8 +247,8 @@ mod tests {
         let c_data = tensor_mult(
             &[0, 1],
             &[2, 3],
-            TensorView::new(&[0, 1, 2], &[2, 3, 4], &[12, 4, 1], a_data),
-            TensorView::new(&[2], &[4], &[1], b_data),
+            TensorView::new(&[0, 1, 2], &[2, 3, 4], &[12, 4, 1], a_data.as_ptr()),
+            TensorView::new(&[2], &[4], &[1], b_data.as_ptr()),
         );
         assert_eq!(
             c_data,
@@ -304,8 +300,8 @@ mod tests {
         let c_data = tensor_mult(
             &[1, 0],
             &[3, 2],
-            TensorView::new(&[0, 1, 2], &[2, 3, 4], &[12, 4, 1], a_data),
-            TensorView::new(&[2], &[4], &[1], b_data),
+            TensorView::new(&[0, 1, 2], &[2, 3, 4], &[12, 4, 1], a_data.as_ptr()),
+            TensorView::new(&[2], &[4], &[1], b_data.as_ptr()),
         );
         assert_eq!(
             c_data,
@@ -333,7 +329,7 @@ mod tests {
         let out = tensor_reorder(
             &[1, 0],
             &[3, 2],
-            TensorView::new(&[0, 1], &[2, 3], &[3, 1], &data),
+            TensorView::new(&[0, 1], &[2, 3], &[3, 1], data.as_ptr()),
         );
 
         assert_eq!(
@@ -364,8 +360,8 @@ mod tests {
         let c_data = tensor_mult(
             &[],
             &[],
-            TensorView::new(&[0], &[3], &[1], &a),
-            TensorView::new(&[0], &[3], &[1], &b),
+            TensorView::new(&[0], &[3], &[1], a.as_ptr()),
+            TensorView::new(&[0], &[3], &[1], b.as_ptr()),
         );
         assert_eq!(c_data, vec![Complex64::new(7.0, 0.0)]);
     }
