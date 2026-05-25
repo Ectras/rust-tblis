@@ -5,19 +5,19 @@ use cmake::Config;
 /// Fixes the issue that BLIS doesn't recognize gcc on some systems.
 /// Workaround until <https://github.com/flame/blis/issues/741> is fixed.
 fn gcc_workaround() -> bool {
-    if env::var_os("CC").is_none()
-        && let Ok(compiler) = cc::Build::new().try_get_compiler()
-        && compiler.is_like_gnu()
-    {
-        println!("cargo:warning=BLIS workaround: setting CC and CXX to gcc and g++");
-        unsafe {
-            env::set_var("CC", "gcc");
-            env::set_var("CXX", "g++");
+    if env::var_os("CC").is_none() {
+        if let Ok(compiler) = cc::Build::new().try_get_compiler() {
+            if compiler.is_like_gnu() {
+                println!("cargo:warning=BLIS workaround: setting CC and CXX to gcc and g++");
+                unsafe {
+                    env::set_var("CC", "gcc");
+                    env::set_var("CXX", "g++");
+                }
+                return true;
+            }
         }
-        true
-    } else {
-        false
     }
+    false
 }
 
 fn undo_gcc_workaround() {
