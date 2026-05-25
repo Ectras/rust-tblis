@@ -8,7 +8,10 @@ pub struct TensorView<'a> {
     labels: &'a [usize],
     /// The shape of the tensor, i.e. the size of each dimension.
     shape: &'a [usize],
-    /// The data of the tensor, stored in row-major order.
+    /// The strides of the tensor, i.e. the number of elements to skip to move to the
+    /// next element in each dimension.
+    strides: &'a [isize],
+    /// The data of the tensor.
     data: &'a [Complex64],
 }
 
@@ -20,8 +23,15 @@ impl<'a> TensorView<'a> {
     /// Panics if:
     /// - The number of labels does not match the number of dimensions
     /// - The data length does not match the product of the shape dimensions
-    pub fn new(labels: &'a [usize], shape: &'a [usize], data: &'a [Complex64]) -> Self {
+    /// - The strides length does not match the number of dimensions
+    pub fn new(
+        labels: &'a [usize],
+        shape: &'a [usize],
+        strides: &'a [isize],
+        data: &'a [Complex64],
+    ) -> Self {
         assert_eq!(labels.len(), shape.len());
+        assert_eq!(strides.len(), shape.len());
 
         let expected_len = shape.iter().product();
         assert_eq!(data.len(), expected_len);
@@ -29,6 +39,7 @@ impl<'a> TensorView<'a> {
         TensorView {
             labels,
             shape,
+            strides,
             data,
         }
     }
@@ -49,6 +60,12 @@ impl<'a> TensorView<'a> {
     #[inline]
     pub fn data(&self) -> &'a [Complex64] {
         self.data
+    }
+
+    /// Returns the strides of this tensor view.
+    #[inline]
+    pub fn strides(&self) -> &'a [isize] {
+        self.strides
     }
 }
 
@@ -134,16 +151,14 @@ pub fn tensor_mult(
     b: TensorView,
 ) -> Vec<Complex64> {
     let a_shape = convert_shape(a.shape());
-    let a_strides = build_row_major_strides(&a_shape);
     let b_shape = convert_shape(b.shape());
-    let b_strides = build_row_major_strides(&b_shape);
     let out_size = out_shape.iter().product();
     let out_shape = convert_shape(out_shape);
     let out_strides = build_row_major_strides(&out_shape);
     let mut out_data = Vec::with_capacity(out_size);
 
-    let a_tensor = create_input_tensor(&a_shape, a.data(), &a_strides);
-    let b_tensor = create_input_tensor(&b_shape, b.data(), &b_strides);
+    let a_tensor = create_input_tensor(&a_shape, a.data(), a.strides());
+    let b_tensor = create_input_tensor(&b_shape, b.data(), b.strides());
     let mut c_tensor = create_out_tensor(&out_shape, out_data.as_mut_ptr(), &out_strides);
 
     unsafe {
@@ -165,13 +180,12 @@ pub fn tensor_mult(
 /// Permutes the tensor data to fit the order in `out_labels`.
 pub fn tensor_reorder(out_labels: &[usize], out_shape: &[usize], a: TensorView) -> Vec<Complex64> {
     let a_shape = convert_shape(a.shape());
-    let a_strides = build_row_major_strides(&a_shape);
     let out_size = out_shape.iter().product();
     let out_shape = convert_shape(out_shape);
     let out_strides = build_row_major_strides(&out_shape);
     let mut out_data = Vec::with_capacity(out_size);
 
-    let a_tensor = create_input_tensor(&a_shape, a.data(), &a_strides);
+    let a_tensor = create_input_tensor(&a_shape, a.data(), a.strides());
     let mut c_tensor = create_out_tensor(&out_shape, out_data.as_mut_ptr(), &out_strides);
 
     unsafe {
@@ -237,8 +251,8 @@ mod tests {
         let c_data = tensor_mult(
             &[0, 1],
             &[2, 3],
-            TensorView::new(&[0, 1, 2], &[2, 3, 4], a_data),
-            TensorView::new(&[2], &[4], b_data),
+            TensorView::new(&[0, 1, 2], &[2, 3, 4], &[12, 4, 1], a_data),
+            TensorView::new(&[2], &[4], &[1], b_data),
         );
         assert_eq!(
             c_data,
@@ -290,8 +304,8 @@ mod tests {
         let c_data = tensor_mult(
             &[1, 0],
             &[3, 2],
-            TensorView::new(&[0, 1, 2], &[2, 3, 4], a_data),
-            TensorView::new(&[2], &[4], b_data),
+            TensorView::new(&[0, 1, 2], &[2, 3, 4], &[12, 4, 1], a_data),
+            TensorView::new(&[2], &[4], &[1], b_data),
         );
         assert_eq!(
             c_data,
@@ -316,7 +330,11 @@ mod tests {
             Complex64::new(5.0, 0.0),
             Complex64::new(6.0, 0.0),
         ];
-        let out = tensor_reorder(&[1, 0], &[3, 2], TensorView::new(&[0, 1], &[2, 3], &data));
+        let out = tensor_reorder(
+            &[1, 0],
+            &[3, 2],
+            TensorView::new(&[0, 1], &[2, 3], &[3, 1], &data),
+        );
 
         assert_eq!(
             out,
@@ -346,8 +364,8 @@ mod tests {
         let c_data = tensor_mult(
             &[],
             &[],
-            TensorView::new(&[0], &[3], &a),
-            TensorView::new(&[0], &[3], &b),
+            TensorView::new(&[0], &[3], &[1], &a),
+            TensorView::new(&[0], &[3], &[1], &b),
         );
         assert_eq!(c_data, vec![Complex64::new(7.0, 0.0)]);
     }
